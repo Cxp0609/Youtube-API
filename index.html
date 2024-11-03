@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Channel Data</title>
+  
+  <!-- Google API Client Library -->
+  <script src="https://apis.google.com/js/api.js"></script>
+  
+  <!-- Chart.js for visualization (optional) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f9f9f9;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h1, h2 {
+      color: #333;
+      text-align: center;
+    }
+
+    button {
+      display: block;
+      margin: 0 auto 20px;
+      padding: 10px 20px;
+      font-size: 16px;
+      color: #fff;
+      background-color: #0073e6;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #005bb5;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      background-color: #fff;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    th, td {
+      padding: 15px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+
+    th {
+      background-color: #0073e6;
+      color: #fff;
+      font-weight: bold;
+    }
+
+    td {
+      font-size: 14px;
+      color: #555;
+    }
+
+    td[colspan="4"] {
+      text-align: center;
+      font-weight: bold;
+      color: #333;
+      background-color: #e6f0ff;
+    }
+
+    tr:hover {
+      background-color: #f1f7ff;
+    }
+
+    a {
+      color: #0073e6;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    
+  </style>
+</head>
+<body>
+
+  <h1>YouTube Channel Data Viewer</h1>
+
+  <button onclick="fetchData()">Load Channel Data</button>
+
+  <h2>Channel Statistics</h2>
+  <table id="channel-data" border="1" cellpadding="10">
+    <thead>
+      <tr>
+        <th>Channel Name</th>
+        <th>Subscribers</th>
+        <th>Views</th>
+        <th>Total Videos</th>
+        <th>Playlist ID</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>Video Details</h2>
+  <table id="video-data" border="1" cellpadding="10">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Published Date</th>
+        <th>Views</th>
+        <th>Likes</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  
+
+  <!-- JavaScript to fetch data and update HTML -->
+  <script>
+    const apiKey = 'AIzaSyA2Ul6y5si8BqkydGb5TdDzwRKhUw8IyCU';
+    const channelIds = [
+      'UC0cd_-e49hZpWLH3UIwoWRA',
+      'UCdngmbVKX1Tgre699-XLlUA',
+      'UC4SVo0Ue36XCfOyb5Lh1viQ',
+      'UCEWpbFLzoYGPfuWUMFPSaoA',
+      'UCWv7vMbMWH4-V0ZXdmDpPBA'
+    ];
+
+    async function initializeClient() {
+      await gapi.client.init({
+        apiKey: apiKey,
+        discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest"]
+      });
+    }
+
+    function loadClient() {
+      gapi.load("client", initializeClient);
+    }
+
+    async function fetchData() {
+      await initializeClient();
+
+      const channelStats = await getChannelStats(channelIds);
+      displayChannelData(channelStats);
+
+      const channelNames = [
+        "Professor Dave Explains",
+        "TechWorld with Nana",
+        "Bro Code",
+        "The Organic Chemistry Tutor",
+        "Programming with Mosh"
+      ];
+        //iterates over each defined channel name to get the 
+      for (let i = 0; i < channelNames.length; i++) {
+        const channelName = channelNames[i];
+        const channelData = channelStats.find(stat => stat.Channel_name === channelName);
+
+        if (channelData) {
+          const playlistId = channelData.playlist_id;// this is the id of the playlist that contains all videos on a channel
+          const videoIds = await getVideoIds(playlistId); //This is each indiviual video id
+          const videoDetails = await getVideoDetails(videoIds);// This is the like views etc of each video
+
+          // Filter videos with  over 10,000 views but need to set a higher limit in order to not hit api qouta limit and avoid some youtube shorts
+          //another possibility is to iterate each channel indivually on different webpages to avoid this issue all together
+          const filteredVideoDetails = videoDetails.filter(video => parseInt(video.Views) >= 10000); 
+
+          displayVideoData(filteredVideoDetails, channelName);
+          
+        } else {
+          console.warn(`Channel data for ${channelName} not found.`);
+        }
+      }
+    }
+
+    async function getChannelStats(channelIds) {
+      const request = gapi.client.youtube.channels.list({
+        part: 'snippet,contentDetails,statistics',
+        id: channelIds.join(',')
+      });
+      const response = await request;
+      return response.result.items.map(item => ({
+        Channel_name: item.snippet.title,
+        Subscribers: item.statistics.subscriberCount,
+        Views: item.statistics.viewCount,
+        Total_videos: item.statistics.videoCount,
+        playlist_id: item.contentDetails.relatedPlaylists.uploads
+      }));
+    }
+
+    async function getVideoIds(playlistId) {
+      let videoIds = [];
+      let nextPageToken = '';
+      do {
+        const request = gapi.client.youtube.playlistItems.list({
+          part: 'contentDetails',
+          playlistId: playlistId,
+          maxResults: 50,
+          pageToken: nextPageToken
+        });
+        const response = await request;
+        videoIds.push(...response.result.items.map(item => item.contentDetails.videoId));
+        nextPageToken = response.result.nextPageToken;
+      } while (nextPageToken);
+      return videoIds;
+    }
+
+    async function getVideoDetails(videoIds) {
+      const allVideoStats = [];
+      for (let i = 0; i < videoIds.length; i += 50) {
+        const request = gapi.client.youtube.videos.list({
+          part: 'snippet,statistics',
+          id: videoIds.slice(i, i + 50).join(',')
+        });
+        const response = await request;
+        response.result.items.forEach(video => {
+          allVideoStats.push({
+            Title: video.snippet.title,
+            Published_date: video.snippet.publishedAt.split('T')[0],
+            Views: video.statistics.viewCount,
+            Likes: video.statistics.likeCount,
+            Video_id: video.id // Added to use in URL
+          });
+        });
+      }
+      return allVideoStats;
+    }
+    //display channel data such as subcribers total videos and views
+    function displayChannelData(channelStats) {
+      const channelTableBody = document.querySelector("#channel-data tbody");
+      channelTableBody.innerHTML = "";
+      channelStats.forEach(stat => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${stat.Channel_name}</td>
+          <td>${stat.Subscribers}</td>
+          <td>${stat.Views}</td>
+          <td>${stat.Total_videos}</td>
+          <td>${stat.playlist_id}</td>
+        `;
+        channelTableBody.appendChild(row);
+      });
+    }
+
+    function displayVideoData(videoDetails, channelName) {
+      const videoTableBody = document.querySelector("#video-data tbody");
+      const headerRow = document.createElement("tr");
+      headerRow.innerHTML = `<td colspan="4"><strong>${channelName}</strong></td>`;
+      videoTableBody.appendChild(headerRow);
+        //defines the clickable link for each video
+      videoDetails.forEach(video => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td><a href="https://www.youtube.com/watch?v=${video.Video_id}" target="_blank">${video.Title}</a></td>
+          <td>${video.Published_date}</td>
+          <td>${video.Views}</td>
+          <td>${video.Likes}</td>
+        `;
+        videoTableBody.appendChild(row);
+      });
+    }
+
+    
+
+    window.onload = loadClient;
+  </script>
+</body>
+</html>
